@@ -750,7 +750,13 @@ base::Status Rpc::NotifyEndOfFile() {
                     "RPC_NOTIFY_END_OF_FILE");
 
   eof_ = true;
-  RETURN_IF_ERROR(trace_processor_->NotifyEndOfFile());
+  base::Status status = trace_processor_->NotifyEndOfFile();
+  if (!status.ok()) {
+    // The client gets the error too, but for a server it is otherwise
+    // invisible why a load which looked fine in the log produced no trace.
+    PERFETTO_ELOG("Failed to load trace: %s", status.c_message());
+    return status;
+  }
   MaybePrintProgress();
   return base::OkStatus();
 }

@@ -217,6 +217,12 @@ class TraceProcessorImpl : public TraceProcessor,
   // called.
   bool notify_eof_called_ = false;
 
+  // Whether NotifyEndOfFile() got as far as including the after-EOF prelude,
+  // i.e. succeeded. If it failed part way (e.g. a file of an archive turned
+  // out to be malformed) the connection only has the before-EOF prelude, and
+  // RestoreInitialTables() has to recreate exactly that.
+  bool after_eof_prelude_included_ = false;
+
   // Cached trace timestamp bounds. This is set in NotifyEndOfFile before
   // tables are finalized and reused in RestoreInitialTables to avoid
   // iterating over finalized dataframes.

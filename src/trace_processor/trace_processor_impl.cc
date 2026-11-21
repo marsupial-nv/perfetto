@@ -641,6 +641,7 @@ base::Status TraceProcessorImpl::NotifyEndOfFile() {
 
   // Stage 4: prepare the connection for queries.
   IncludeAfterEofPrelude(engine_.get());
+  after_eof_prelude_included_ = true;
   sqlite_objects_post_prelude_ = engine_->SqliteRegisteredObjectCount();
 
   return base::OkStatus();
@@ -911,7 +912,10 @@ size_t TraceProcessorImpl::RestoreInitialTables() {
       &metrics_descriptor_pool_,
       &proto_fn_name_to_path_,
       this,
-      notify_eof_called_,
+      // Not notify_eof_called_: a NotifyEndOfFile() which failed never
+      // included the after-EOF prelude, so |sqlite_objects_post_prelude_|
+      // does not count it either.
+      after_eof_prelude_included_,
       cached_trace_bounds_,
       plugins_,
       plugin_dataframes_,
