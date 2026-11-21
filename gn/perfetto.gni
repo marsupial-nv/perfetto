@@ -443,6 +443,30 @@ declare_args() {
   enable_perfetto_winscope =
       enable_perfetto_trace_processor &&
       (perfetto_build_standalone || is_perfetto_build_generator)
+
+  # Enables the importer for captures of the Tracy profiler (.tracy files) in
+  # trace_processor. The .tracy format has no specification, so it is read
+  # with Tracy's own server library, which is not part of buildtools/: this
+  # is off by default and, when turning it on, perfetto_tracy_src_dir and
+  # perfetto_tracy_libs below must be set too. Standalone builds only.
+  enable_perfetto_tracy_importer = false
+
+  # Absolute path of a checkout of https://github.com/wolfpld/tracy. Only its
+  # headers (server/ and public/common/) are used.
+  perfetto_tracy_src_dir = ""
+
+  # Absolute paths of extra include directories required by Tracy's server
+  # headers: the ones containing zstd.h and ppqsort.h (Tracy's CMake build
+  # downloads both under <build dir>/.cpm-cache).
+  perfetto_tracy_include_dirs = []
+
+  # Absolute paths of the prebuilt static libraries to link: Tracy's
+  # libTracyServer.a (the TracyServer CMake target) and its dependencies
+  # (libcapstone.a, plus libzstd.a if enable_perfetto_zstd is false). They
+  # must be built for the target platform, against the same C++ standard
+  # library as Perfetto and with the same value of TRACY_NO_STATISTICS (unset)
+  # as the default CMake build.
+  perfetto_tracy_libs = []
 }
 
 declare_args() {

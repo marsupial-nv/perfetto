@@ -255,11 +255,11 @@ base::StatusOr<FileEntry> ParseFileEntry(const json::Dom& file) {
   entry.path = file["path"].AsString();
   if (file.HasMember("__exported_table_schema")) {
     if (file.HasMember("clocks") || file.HasMember("machine") ||
-        file.HasMember("machines")) {
+        file.HasMember("machines") || file.HasMember("align")) {
       return base::ErrStatus(
           "perfetto_manifest: '%s': an exported table is not a trace, so "
           "__exported_table_schema cannot be combined with "
-          "clocks/machine/machines",
+          "clocks/machine/machines/align",
           entry.path.c_str());
     }
     ASSIGN_OR_RETURN(entry.exported_table_schema,
@@ -271,6 +271,23 @@ base::StatusOr<FileEntry> ParseFileEntry(const json::Dom& file) {
       return base::ErrStatus("perfetto_manifest: clocks must be an object");
     }
     ASSIGN_OR_RETURN(entry.clock_override, ParseClocks(file["clocks"]));
+  }
+  if (file.HasMember("align")) {
+    if (file.HasMember("clocks")) {
+      return base::ErrStatus(
+          "perfetto_manifest: '%s': align and clocks are mutually exclusive: "
+          "a clocks block already places the file at a fixed offset",
+          entry.path.c_str());
+    }
+    std::string align =
+        file["align"].IsString() ? file["align"].AsString() : std::string();
+    if (align != "auto" && align != "clock" && align != "start") {
+      return base::ErrStatus(
+          "perfetto_manifest: '%s': align must be one of \"auto\", "
+          "\"clock\" or \"start\"",
+          entry.path.c_str());
+    }
+    entry.align = std::move(align);
   }
   if (file.HasMember("machine") && file.HasMember("machines")) {
     return base::ErrStatus(

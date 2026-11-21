@@ -134,6 +134,7 @@ Each entry in the `files` array is an object:
 | `machine` | object | no | Attributes the whole file to a named machine. Mutually exclusive with `machines`. |
 | `machines` | array | no | Remaps a multi-machine trace's embedded machine ids to named machines. Mutually exclusive with `machine`. |
 | `clocks` | object | no | Manually relates this file's clock to a clock in another file. See [clocks](#clocks). |
+| `align` | string | no | How to place a file which is put on the timeline as a whole. See [align](#align). Mutually exclusive with `clocks`. |
 
 ### {#machine} machine
 
@@ -239,6 +240,25 @@ WARNING: a manual `offset_ns` that moves events before the start of the
 merged timeline causes those events to be dropped, counted in the
 `trace_sorter_negative_timestamp_dropped` stat. The Perfetto UI's merge
 dialog reports this before opening.
+
+### {#align} align
+
+Most formats are read as a stream and each event is placed through the file's
+clocks. A few importers instead read the whole file and then place it on the
+timeline in one piece. For those (currently only captures of the Tracy
+profiler, when trace processor is built with the Tracy importer) `align`
+selects where the file goes relative to the traces read before it, i.e. all
+the files of other formats and the preceding files of the same format:
+
+| Value | Meaning |
+|-------|---------|
+| `auto` | The default, also without a manifest. By the file's clocks if that makes it overlap in time with the other traces (they were recorded together); otherwise as `start` (they are separate recordings, opened together to be compared). |
+| `clock` | Always by the file's clocks. |
+| `start` | So that the file's activity starts when the other traces start. |
+
+A file loaded on its own is always placed by its clocks. `align` on a file of
+any other format is an error: use [clocks](#clocks) to place it at a fixed
+offset.
 
 ## {#attributes} attributes
 

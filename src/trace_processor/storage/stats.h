@@ -697,6 +697,14 @@ namespace perfetto::trace_processor::stats {
   F(compact_sched_waking_skipped,         kSingle,  kInfo,     kAnalysis, Scope::kMachineAndTrace, ""), \
   F(empty_chrome_metadata,                kSingle,  kError,    kTrace, Scope::kMachineAndTrace,    ""), \
   F(ninja_parse_errors,                   kSingle,  kError,    kTrace, Scope::kMachineAndTrace,    ""), \
+  F(tracy_aligned_to_start,               kSingle,  kInfo,     kTrace, Scope::kMachineAndTrace,         \
+      "Count of Tracy captures which were placed so that they start when the " \
+      "traces loaded with them start, rather than by their wall-clock time: "  \
+      "either the perfetto_manifest asked for it or (the default) they do "    \
+      "not overlap in time, i.e. they are separate recordings."),              \
+  F(tracy_out_of_order_events,            kSingle,  kError,    kTrace, Scope::kMachineAndTrace,         \
+      "Count of events of a Tracy capture whose timestamp went backwards "     \
+      "within a thread (or plot) and was clamped to the previous timestamp."), \
   F(perf_cpu_lost_records,                kIndexed, kDataLoss, kTrace, Scope::kMachineAndTrace,         \
       "Count of perf samples lost due to kernel buffer overruns. The trace "   \
       "is missing information, but it's not known which processes are "        \

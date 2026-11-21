@@ -142,6 +142,15 @@ base::Status ForwardingTraceParser::Init(const TraceBlobView& blob) {
         manifest_entry->path.c_str());
   }
 
+  if (manifest_entry && manifest_entry->align &&
+      !desc->supports_file_alignment) {
+    return base::ErrStatus(
+        "perfetto_manifest: align is not supported for %s traces, which "
+        "cannot be placed on the timeline as a whole; use a clocks block "
+        "instead: %s",
+        desc->name.c_str(), manifest_entry->path.c_str());
+  }
+
   if (!desc->forks_context) {
     // perfetto_manifest files produce no events: like containers they must
     // not fork a per-trace context, as that would make this file the
@@ -160,6 +169,14 @@ base::Status ForwardingTraceParser::Init(const TraceBlobView& blob) {
         input_context_->ForkContextForTrace(file_id_, raw_machine_id);
     if (desc->pid_zero_is_idle) {
       trace_context_->process_tracker->SetPidZeroIsUpidZeroIdleProcess();
+    }
+    if (manifest_entry && manifest_entry->align) {
+      using FileAlignment = TraceProcessorContext::TraceState::FileAlignment;
+      const std::string& align = *manifest_entry->align;
+      trace_context_->trace_state->file_alignment =
+          align == "clock"   ? FileAlignment::kClock
+          : align == "start" ? FileAlignment::kStart
+                             : FileAlignment::kAuto;
     }
     if (manifest_entry) {
       // A `machines` block declares the file IS multi-machine, so it is not a

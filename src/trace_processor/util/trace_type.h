@@ -74,6 +74,10 @@ struct TraceTypeDescriptor {
   //   false: does not fork a per-trace context (containers + the manifest,
   //   which produce no timeline of their own).
   bool forks_context = true;
+  //   true: the reader places the file on the timeline as a whole, once it
+  //   has seen all of it, so it can honour a perfetto_manifest `align` mode
+  //   (see TraceState::file_alignment). Streaming readers cannot.
+  bool supports_file_alignment = false;
   //   The perfetto_manifest sidecar: a config file rather than a trace. It must
   //   be the first file in the input, and gates manifest-specific handling.
   bool is_manifest = false;

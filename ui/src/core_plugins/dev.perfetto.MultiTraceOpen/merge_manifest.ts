@@ -42,6 +42,8 @@ export interface ManifestFileEntry {
   machine?: {name: string};
   machines?: Array<{id: number; name: string}>;
   clocks?: ManifestClocks;
+  // Only for files the importer places as a whole; omitted means 'auto'.
+  align?: 'clock' | 'start';
 }
 
 export interface PerfettoManifest {
@@ -67,9 +69,11 @@ export interface MergeFile {
   readonly machineName?: string;
   // Multi-machine proto remap, straight from the config.
   readonly machines?: ReadonlyArray<MachineRemap>;
+  // The importer places this file as a whole, so `align` applies to it.
+  readonly wholeFileAlignment?: boolean;
 }
 
-const MANIFEST_FILENAME = 'perfetto_manifest.json';
+export const MANIFEST_FILENAME = 'perfetto_manifest.json';
 
 // The clocks block for a file, or undefined. Only `manual` mode with an offset
 // and a resolved reference emits one; everything else auto-aligns.
@@ -117,6 +121,14 @@ function serializeFile(file: MergeFile): ManifestFileEntry {
   if (clocks !== undefined) {
     entry.clocks = clocks;
   }
+  // `auto` is the importer's default, so it is not spelled out. The importer
+  // rejects `align` on files it cannot place as a whole.
+  if (
+    file.wholeFileAlignment === true &&
+    (file.alignMode === 'clock' || file.alignMode === 'start')
+  ) {
+    entry.align = file.alignMode;
+  }
   return entry;
 }
 
@@ -124,7 +136,8 @@ function hasConfig(entry: ManifestFileEntry): boolean {
   return (
     entry.machine !== undefined ||
     entry.machines !== undefined ||
-    entry.clocks !== undefined
+    entry.clocks !== undefined ||
+    entry.align !== undefined
   );
 }
 

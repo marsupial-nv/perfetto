@@ -80,11 +80,16 @@ export function clockNamesForIds(
   return BUILTIN_CLOCKS.filter((c) => ids.includes(c.id)).map((c) => c.name);
 }
 
-// Two placements only: `auto` lets the importer line the file up from its own
-// clocks; `manual` shifts it by a fixed offset relative to a reference clock in
-// another file. (The old anchor/native/peg split was removed in favour of this
-// single manual knob.)
-export type AlignMode = 'auto' | 'manual';
+// `auto` lets the importer line the file up; `manual` shifts it by a fixed
+// offset relative to a reference clock in another file. (The old
+// anchor/native/peg split was removed in favour of this single manual knob.)
+//
+// Files the importer places on the timeline as a whole (see
+// FileAnalysis.wholeFileAlignment) have two more, and for them `auto` is
+// smarter: by real clocks if that makes the file overlap the other traces in
+// time, else overlaid at their start (separate recordings, opened together to
+// be compared). `clock` forces real clocks; `start` forces the overlay.
+export type AlignMode = 'auto' | 'clock' | 'start' | 'manual';
 
 // A single embedded machine id of a multi-machine proto, paired with the name
 // to remap it to.
@@ -139,4 +144,8 @@ export interface FileAnalysis {
   singleMachine?: boolean;
   // The embedded machine raw_ids, present for multi-machine protos.
   embeddedMachineIds?: ReadonlyArray<number>;
+  // True when the importer reads the whole file and then places it on the
+  // timeline in one piece (Tracy captures), so it honours the manifest's
+  // `align` field: the `clock` and `start` modes, and the smart `auto`.
+  wholeFileAlignment?: boolean;
 }

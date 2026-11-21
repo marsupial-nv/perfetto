@@ -342,6 +342,141 @@ describe('MultiTraceController', () => {
       });
     });
 
+    describe('a clockless file against a multi-clock baseline', () => {
+      // What the analyzer reports for a Perfetto trace with clock snapshots
+      // and for a Tracy capture (or any clockless trace, e.g. JSON).
+      function multiClock(uuid: string, name: string): TraceFileAnalyzed {
+        return {
+          uuid,
+          file: new File([], name),
+          status: 'analyzed',
+          analysis: {
+            format: 'Perfetto',
+            singleClock: false,
+            singleMachine: true,
+            builtinClockIds: [1, 3, 6],
+          },
+        };
+      }
+      function clockless(uuid: string, name: string): TraceFileAnalyzed {
+        return {
+          uuid,
+          file: new File([], name),
+          status: 'analyzed',
+          analysis: {
+            format: 'Tracy',
+            singleClock: true,
+            privateClockOnly: true,
+            singleMachine: true,
+            builtinClockIds: [],
+          },
+        };
+      }
+
+      beforeEach(() => {
+        controller.setTracesForTesting([
+          multiClock('u1', 'a.pftrace'),
+          clockless('u2', 'b.tracy'),
+        ]);
+        controller.updateConfig('u2', {alignMode: 'manual', offsetText: '500'});
+      });
+
+      it('pins it to the clock the baseline events are on', () => {
+        const entry = manifest().files?.find((f) => f.path === 'b.tracy');
+        // No source clock (the file is pinned), and a named reference clock:
+        // without one the offset would relate to a's unused private clock.
+        expect(entry?.clocks).toEqual({
+          sync_to: {file: 'a.pftrace', clock: 'BOOTTIME'},
+          offset_ns: 500,
+        });
+        // A pinned file has its own private clock so may share the machine.
+        expect(controller.configError()).toBeUndefined();
+      });
+
+      it('offsets the first trace against the second', () => {
+        // The first trace has nothing before it to be measured against; its
+        // offset relates it to the next one rather than being dropped.
+        controller.setTracesForTesting([
+          clockless('u2', 'b.tracy'),
+          multiClock('u1', 'a.pftrace'),
+        ]);
+        expect(controller.baselineName('u2')).toBe('a.pftrace');
+        const entry = manifest().files?.find((f) => f.path === 'b.tracy');
+        expect(entry?.clocks).toEqual({
+          sync_to: {file: 'a.pftrace', clock: 'BOOTTIME'},
+          offset_ns: 500,
+        });
+      });
+
+      it('follows the chosen trace-time clock', () => {
+        controller.setTraceTimeClock('MONOTONIC');
+        const entry = manifest().files?.find((f) => f.path === 'b.tracy');
+        expect(entry?.clocks).toEqual({
+          sync_to: {file: 'a.pftrace', clock: 'MONOTONIC'},
+          offset_ns: 500,
+        });
+      });
+    });
+
+    describe('a file the importer places as a whole', () => {
+      function tracy(uuid: string, name: string): TraceFileAnalyzed {
+        return {
+          uuid,
+          file: new File([], name),
+          status: 'analyzed',
+          analysis: {
+            format: 'Tracy',
+            singleClock: true,
+            privateClockOnly: true,
+            singleMachine: true,
+            builtinClockIds: [],
+            wholeFileAlignment: true,
+          },
+        };
+      }
+
+      beforeEach(() => {
+        controller.setTracesForTesting([
+          analyzed('u1', 'a.pftrace'),
+          tracy('u2', 'b.tracy'),
+        ]);
+      });
+
+      it('leaves the default to the importer', () => {
+        // 'auto' is the importer's default (real clocks if the traces overlap
+        // in time, else overlaid at the start): nothing to spell out.
+        expect(controller.supportsWholeFileAlignment('u2')).toBe(true);
+        expect(controller.supportsWholeFileAlignment('u1')).toBe(false);
+        expect(controller.hasManifestConfig()).toBe(false);
+      });
+
+      it('serializes the explicit modes as align', () => {
+        controller.updateConfig('u2', {alignMode: 'start'});
+        let entry = manifest().files?.find((f) => f.path === 'b.tracy');
+        expect(entry).toEqual({path: 'b.tracy', align: 'start'});
+
+        controller.updateConfig('u2', {alignMode: 'clock'});
+        entry = manifest().files?.find((f) => f.path === 'b.tracy');
+        expect(entry).toEqual({path: 'b.tracy', align: 'clock'});
+      });
+
+      it('never emits align for a file which cannot take it', () => {
+        // The importer rejects align on streamed formats.
+        controller.updateConfig('u1', {alignMode: 'start'});
+        expect(controller.hasManifestConfig()).toBe(false);
+      });
+
+      it('a fixed offset replaces align', () => {
+        controller.updateConfig('u2', {alignMode: 'manual', offsetText: '7'});
+        const entry = manifest().files?.find((f) => f.path === 'b.tracy');
+        expect(entry?.align).toBeUndefined();
+        expect(entry?.clocks).toEqual({
+          sync_to: {file: 'a.pftrace', clock: 'BOOTTIME'},
+          offset_ns: 7,
+        });
+      });
+    });
+
     it('ignores a non-integer offset (free-text not yet valid)', () => {
       controller.updateConfig('u2', {alignMode: 'manual', offsetText: '-'});
       expect(controller.hasManifestConfig()).toBe(false);

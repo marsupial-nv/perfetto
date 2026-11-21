@@ -1,0 +1,93 @@
+# Copyright (C) 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("../../../../gn/perfetto.gni")
+
+assert(enable_perfetto_trace_processor_sqlite)
+assert(enable_perfetto_tracy_importer)
+assert(perfetto_build_standalone,
+       "enable_perfetto_tracy_importer is only supported in standalone builds")
+assert(
+    perfetto_tracy_src_dir != "" && perfetto_tracy_libs != [],
+    "enable_perfetto_tracy_importer requires perfetto_tracy_src_dir and perfetto_tracy_libs")
+
+source_set("tracy_importer") {
+  sources = [
+    "tracy_importer.cc",
+    "tracy_importer.h",
+    "tracy_trace_reader.cc",
+    "tracy_trace_reader.h",
+  ]
+  deps = [
+    ":bridge",
+    "../..:storage_minimal",
+    "../../../../gn:default_deps",
+    "../../../../protos/perfetto/common:zero",
+    "../../../base",
+    "../../containers",
+    "../../core/plugin",
+    "../../importers/common",
+    "../../sorter",
+    "../../storage",
+    "../../tables:tables_python",
+    "../../types",
+    "../../util:trace_type",
+  ]
+}
+
+# Tracy's server code needs C++20, exceptions and RTTI and is not clean under
+# Perfetto's warning flags.
+config("tracy_cflags") {
+  cflags_cc = [
+    "-std=c++20",
+    "-fexceptions",
+    "-frtti",
+  ]
+  cflags = [ "-w" ]
+  include_dirs = [
+                   "$perfetto_tracy_src_dir/server",
+                   "$perfetto_tracy_src_dir/public/common",
+                 ] + perfetto_tracy_include_dirs
+
+  # Tracy's CMake build compiles the server library in Release mode, i.e.
+  # without assertions.
+  defines = [ "NDEBUG" ]
+}
+
+# Makes anything depending on :bridge link Tracy's prebuilt libraries.
+config("tracy_libs") {
+  libs = perfetto_tracy_libs
+}
+
+# The only code which sees Tracy's headers. Everything else talks to it via
+# the Tracy-free interface in tracy_bridge.h.
+source_set("bridge") {
+  sources = [
+    "tracy_bridge.cc",
+    "tracy_bridge.h",
+  ]
+  configs -= [
+    "//gn/standalone:cxx_standard",
+    "//gn/standalone:extra_warnings",
+    "//gn/standalone:no_exceptions",
+    "//gn/standalone:rtti_cflags",
+  ]
+  configs += [ ":tracy_cflags" ]
+  all_dependent_configs = [ ":tracy_libs" ]
+  deps = [ "../../../../gn:default_deps" ]
+  if (enable_perfetto_zstd) {
+    # Tracy needs zstd; reuse Perfetto's copy rather than linking a second one.
+    deps += [ "../../../../gn:zstd" ]
+  }
+}

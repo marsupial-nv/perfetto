@@ -22,6 +22,14 @@ import {
 import {NUM, STR, STR_NULL} from '../../trace_processor/query_result';
 import type {TraceStream} from '../../public/stream';
 import {BUILTIN_CLOCKS, type FileAnalysis} from './multi_trace_types';
+import {MANIFEST_FILENAME} from './merge_manifest';
+import {
+  isTracyCapture,
+  manifestJsonForDryRun,
+  TRACY_FILE_ANALYSIS,
+  TRACY_NEEDS_NATIVE_ENGINE_ERROR,
+  tracyStandIn,
+} from './tracy_file';
 
 export interface AlignmentVerdict {
   // True if there are no dropped events and no manifest validation error.
@@ -31,6 +39,10 @@ export interface AlignmentVerdict {
   readonly droppedEvents: number;
   // Set if the manifest itself is invalid (e.g. is.file names an unknown file).
   readonly validationError?: string;
+  // Names of the files whose events the dry-run could not look at (Tracy
+  // captures, which only a native trace processor can read): the verdict says
+  // nothing on whether those line up.
+  readonly uncheckedFiles?: ReadonlyArray<string>;
 }
 
 export interface TraceAnalyzer {
@@ -150,10 +162,22 @@ function parseClockIds(s: string | null): number[] {
 }
 
 export class WasmTraceAnalyzer implements TraceAnalyzer {
+  // |canOpenTracy| tells whether opening the traces will go to a native trace
+  // processor, the only kind which can have the Tracy importer.
+  constructor(private readonly canOpenTracy: () => Promise<boolean>) {}
+
   async analyze(
     file: File,
     onProgress: (progress: number) => void,
   ): Promise<FileAnalysis> {
+    // The Wasm engine used below cannot read Tracy captures; see tracy_file.ts.
+    if (await isTracyCapture(file)) {
+      if (!(await this.canOpenTracy())) {
+        throw new Error(TRACY_NEEDS_NATIVE_ENGINE_ERROR);
+      }
+      onProgress(1);
+      return TRACY_FILE_ANALYSIS;
+    }
     using engine = newTokenizeOnlyEngine();
     await parseStream(engine, new TraceFileStream(file), (n) =>
       onProgress(n / file.size),
@@ -189,9 +213,26 @@ export class WasmTraceAnalyzer implements TraceAnalyzer {
   async analyzeMergedAlignment(
     files: ReadonlyArray<File>,
   ): Promise<AlignmentVerdict> {
+    // Tracy captures are swapped for stand-ins the Wasm engine can load, so
+    // that the manifest and the other traces still get checked.
+    const unchecked: string[] = [];
+    const dryRunFiles: File[] = [];
+    for (const file of files) {
+      if (await isTracyCapture(file)) {
+        unchecked.push(file.name);
+        dryRunFiles.push(tracyStandIn(file));
+      } else if (file.name === MANIFEST_FILENAME) {
+        const json = manifestJsonForDryRun(await file.text());
+        dryRunFiles.push(new File([json], file.name, {type: file.type}));
+      } else {
+        dryRunFiles.push(file);
+      }
+    }
+    const uncheckedFiles = unchecked.length > 0 ? unchecked : undefined;
+
     using engine = newTokenizeOnlyEngine();
     try {
-      await parseStream(engine, new TraceMultipleFilesStream(files));
+      await parseStream(engine, new TraceMultipleFilesStream(dryRunFiles));
     } catch (e) {
       // A manifest validation error (or unreadable input) surfaces here.
       return {ok: false, droppedEvents: 0, validationError: getErrorMessage(e)};
@@ -209,7 +250,7 @@ export class WasmTraceAnalyzer implements TraceAnalyzer {
       `);
       const it = res.iter({dropped: NUM});
       const dropped = it.valid() ? it.dropped : 0;
-      return {ok: dropped === 0, droppedEvents: dropped};
+      return {ok: dropped === 0, droppedEvents: dropped, uncheckedFiles};
     } catch (e) {
       return {ok: false, droppedEvents: 0, validationError: getErrorMessage(e)};
     }

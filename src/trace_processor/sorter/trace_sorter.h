@@ -137,6 +137,16 @@ class TraceSorter {
 
   int64_t max_timestamp() const { return append_max_ts_; }
 
+  // The smallest non-zero timestamp appended to the sorter so far, if any:
+  // the earliest point in time the traces read so far have an event at. Zero
+  // is excluded as it is what tokenizers give events with no timestamp of
+  // their own (e.g. the metadata packets at the start of a proto trace).
+  std::optional<int64_t> min_nonzero_timestamp() const {
+    return append_min_ts_ == std::numeric_limits<int64_t>::max()
+               ? std::nullopt
+               : std::make_optional(append_min_ts_);
+  }
+
   // The most events in a block. 64K events (1MB): small enough to sort in
   // cache, large enough that blocks are few to merge.
   static constexpr uint32_t kBlockEvents = 64 * 1024;
@@ -246,6 +256,8 @@ class TraceSorter {
       block.sorted = false;
     }
     append_max_ts_ = std::max(append_max_ts_, ts);
+    if (PERFETTO_LIKELY(ts != 0))
+      append_min_ts_ = std::min(append_min_ts_, ts);
   }
 
   // Sorts the open block, if any, and starts a new one.
@@ -302,6 +314,9 @@ class TraceSorter {
 
   // max(e.ts for e appended to the sorter)
   int64_t append_max_ts_ = 0;
+
+  // min(e.ts for e appended to the sorter if e.ts != 0)
+  int64_t append_min_ts_ = std::numeric_limits<int64_t>::max();
 
   // How events pushed into the sorter should be handled.
   EventHandling event_handling_ = EventHandling::kSortAndPush;

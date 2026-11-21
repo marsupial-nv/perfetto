@@ -316,6 +316,10 @@ if (enable_perfetto_trace_processor_sqlite) {
       ]
     }
 
+    if (enable_perfetto_tracy_importer) {
+      deps += [ "plugins/tracy_importer" ]
+    }
+
     public_deps = [
       "../../gn:sqlite",  # sqlite_iterator_impl.h includes sqlite3.h.
       "../../include/perfetto/trace_processor",

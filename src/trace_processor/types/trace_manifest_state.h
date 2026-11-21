@@ -97,6 +97,8 @@ struct TraceManifestState {
     // Exact path of the member within the archive.
     std::string path;
     std::optional<ClockOverride> clock_override;
+    // The `align` mode: "auto", "clock" or "start" (validated by the reader).
+    std::optional<std::string> align;
     // The file's base machine: a synthetic raw id the reader allocates per
     // distinct |machine_name|, so files sharing a name land on one machine.
     std::optional<int64_t> machine_id;

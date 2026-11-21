@@ -33,10 +33,11 @@ import {TextInput} from '../../widgets/text_input';
 import {TextParagraph} from '../../widgets/text_paragraph';
 import {Tooltip} from '../../widgets/tooltip';
 import {MultiTraceController} from './multi_trace_controller';
-import type {ClockName, TraceFile} from './multi_trace_types';
+import type {AlignMode, ClockName, TraceFile} from './multi_trace_types';
 import {parseOffsetNs} from './multi_trace_types';
 import type {AlignmentVerdict} from './trace_analyzer';
 import {WasmTraceAnalyzer} from './trace_analyzer';
+import {HttpRpcEngine} from '../../trace_processor/http_rpc_engine';
 
 const MODAL_KEY = 'multi-trace-modal';
 
@@ -92,13 +93,41 @@ const ProcessingCallout: m.Component = {
 // Shell Component
 // =============================================================================
 
+// Whether "Open Traces" will load into a native trace processor over HTTP+RPC
+// rather than the one built into the page: the same test loadTrace() makes.
+async function willOpenWithNativeEngine(): Promise<boolean> {
+  if (AppImpl.instance.httpRpc.newEngineMode !== 'USE_HTTP_RPC_IF_AVAILABLE') {
+    return false;
+  }
+  return (await HttpRpcEngine.checkConnection()).connected;
+}
+
+// What a mode other than a fixed offset does to a file the importer places as
+// a whole, spelled out next to the control: the automatic choice is made at
+// load time, where the dialog cannot show its outcome.
+function wholeFileAlignNote(mode: AlignMode): string {
+  switch (mode) {
+    case 'clock':
+      return 'Placed by its real clock, even if recorded at another time.';
+    case 'start':
+      return 'Overlaid: starts when the other traces start.';
+    default:
+      return (
+        'By its real clock if recorded together with the other traces; ' +
+        'if recorded at a different time, overlaid at their start. Choose ' +
+        '"by real clocks" to keep the real gap.'
+      );
+  }
+}
+
 interface MultiTraceModalAttrs {
   readonly initialFiles: readonly File[];
 }
 
 class MultiTraceModalShell implements m.ClassComponent<MultiTraceModalAttrs> {
-  private controller = new MultiTraceController(new WasmTraceAnalyzer(), () =>
-    redrawModal(),
+  private controller = new MultiTraceController(
+    new WasmTraceAnalyzer(willOpenWithNativeEngine),
+    () => redrawModal(),
   );
 
   oncreate({attrs}: m.Vnode<MultiTraceModalAttrs>) {
@@ -237,6 +266,18 @@ class MultiTraceModalShell implements m.ClassComponent<MultiTraceModalAttrs> {
           'their trace shares no clock with it or because an offset moves ' +
           'them before its start. Adjust the alignment, or check the ' +
           'manifest.',
+      ]);
+    }
+    const unchecked = verdict.uncheckedFiles ?? [];
+    if (unchecked.length > 0) {
+      // Only the native trace processor can read these, so the dry-run (which
+      // runs in the browser) checked the manifest and the other traces only.
+      return m(Callout, {intent: Intent.Success, icon: 'check_circle'}, [
+        'The manifest is valid and the other traces line up on the shared ' +
+          `timeline. Not checked: ${unchecked.join(', ')} (Tracy captures ` +
+          'are only read by the native trace processor when the traces are ' +
+          'opened; if their offset places them before the start of the ' +
+          'timeline their events are dropped).',
       ]);
     }
     return m(Callout, {intent: Intent.Success, icon: 'check_circle'}, [
@@ -458,7 +499,10 @@ class MergeConfigurator implements m.ClassComponent<MergeConfiguratorAttrs> {
         ),
       );
     } else if (controller.traces.length >= 2) {
-      if (controller.referenceTraceUuid() === trace.uuid) {
+      if (
+        controller.referenceTraceUuid() === trace.uuid &&
+        !controller.supportsWholeFileAlignment(trace.uuid)
+      ) {
         children.push(
           m('.pf-multi-trace-modal__note', 'Baseline. Others align to this.'),
         );
@@ -626,26 +670,49 @@ class MergeConfigurator implements m.ClassComponent<MergeConfiguratorAttrs> {
     controller: MultiTraceController,
   ) {
     const config = controller.getConfig(trace.uuid);
-    return m(Inline, {spacing: 'small', wrap: true}, [
-      m('strong', 'Align:'),
-      this.renderDropdown(
-        config.alignMode,
-        [
+    // Files the importer places as a whole (Tracy captures) can also be
+    // overlaid at the start of the other traces, and by default are whenever
+    // they turn out to be a separate recording.
+    const wholeFile = controller.supportsWholeFileAlignment(trace.uuid);
+    const options: Array<{value: AlignMode; label: string}> = wholeFile
+      ? [
+          {value: 'auto', label: 'automatically'},
+          {value: 'clock', label: 'by real clocks'},
+          {value: 'start', label: "to the other traces' start"},
+          {value: 'manual', label: 'by a fixed offset'},
+        ]
+      : [
           {value: 'auto', label: 'automatically'},
           {value: 'manual', label: 'by a fixed offset'},
-        ],
-        (value) =>
-          controller.updateConfig(trace.uuid, {
-            alignMode: value === 'manual' ? 'manual' : 'auto',
-          }),
+        ];
+    return m(Inline, {spacing: 'small', wrap: true}, [
+      m('strong', 'Align:'),
+      this.renderDropdown(config.alignMode, options, (value) =>
+        controller.updateConfig(trace.uuid, {
+          alignMode: options.find((o) => o.value === value)?.value ?? 'auto',
+        }),
       ),
       config.alignMode === 'manual' &&
         this.manualFieldChildren(trace, controller),
+      wholeFile &&
+        config.alignMode !== 'manual' &&
+        m(
+          'span.pf-multi-trace-modal__note',
+          wholeFileAlignNote(config.alignMode),
+        ),
       m(Help, [
-        'Where this trace sits on the shared timeline. Automatically lines ' +
-          'it up using its own clocks. By a fixed offset moves it by a set ' +
-          'number of nanoseconds relative to the baseline trace; a positive ' +
-          'value moves it later.',
+        'Where this trace sits on the shared timeline. ' +
+          (wholeFile
+            ? 'Automatically uses its real (wall) clock if that makes it ' +
+              'overlap the other traces in time, as traces recorded together ' +
+              'do; if they were recorded at different times it is overlaid ' +
+              'so that its first zone lines up with their first event, ' +
+              'which is what you want to compare two runs. This is decided ' +
+              'when the traces are opened. By real clocks and to the other ' +
+              "traces' start force one or the other. "
+            : 'Automatically lines it up using its own clocks. ') +
+          'By a fixed offset moves it by a set number of nanoseconds ' +
+          'relative to the baseline trace; a positive value moves it later.',
       ]),
     ]);
   }

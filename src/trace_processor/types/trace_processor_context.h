@@ -116,6 +116,22 @@ class TraceProcessorContext {
     // so ClockSnapshots and remote machine ids are rejected on it.
     bool has_clock_override = false;
 
+    // How a reader which places its file on the timeline as a whole (see
+    // TraceTypeDescriptor::supports_file_alignment) should do so when the
+    // file is loaded together with other traces. Set from the `align` field
+    // of the file's perfetto_manifest entry.
+    enum class FileAlignment {
+      // By its clocks if that makes the file overlap in time with the traces
+      // read before it (they were recorded together), otherwise as kStart
+      // (they are separate recordings, opened together to be compared).
+      kAuto,
+      // By its clocks.
+      kClock,
+      // So that it starts when the traces read before it start.
+      kStart,
+    };
+    FileAlignment file_alignment = FileAlignment::kAuto;
+
     // Set when a perfetto_manifest entry attributed this file to a single
     // machine; lets readers reject it later if it proves to be multi-machine.
     bool has_machine_override = false;

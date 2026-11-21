@@ -22,6 +22,7 @@ import type {
 } from './multi_trace_types';
 import {
   BUILTIN_CLOCKS,
+  clockNamesForIds,
   defaultFileMergeConfig,
   parseOffsetNs,
 } from './multi_trace_types';
@@ -51,6 +52,34 @@ function soleRealClock(trace: TraceFile): ClockName | undefined {
   const ids = trace.analysis.builtinClockIds ?? [];
   if (ids.length !== 1) return undefined;
   return BUILTIN_CLOCKS.find((c) => c.id === ids[0])?.name;
+}
+
+// The clock of |trace| a manual offset from another trace should refer to:
+// its sole real clock or, if it exposes several (a Perfetto trace with clock
+// snapshots), the one its events are on in the merged trace: the chosen
+// trace-time clock if the trace has it, else the first present of BOOTTIME
+// (what Perfetto traces default to), MONOTONIC, REALTIME. Undefined for a
+// clockless trace, whose private clock is the reference.
+//
+// Leaving the clock out for a multi-clock reference would relate the offset
+// file to the reference's private clock, which none of its events are on: the
+// offset would have no effect.
+function referenceClock(
+  trace: TraceFile,
+  traceTimeClock: ClockName | undefined,
+): ClockName | undefined {
+  const sole = soleRealClock(trace);
+  if (sole !== undefined || trace.status !== 'analyzed') return sole;
+  const names = clockNamesForIds(trace.analysis.builtinClockIds ?? []);
+  if (traceTimeClock !== undefined && names.includes(traceTimeClock)) {
+    return traceTimeClock;
+  }
+  const preference: ReadonlyArray<ClockName> = [
+    'BOOTTIME',
+    'MONOTONIC',
+    'REALTIME',
+  ];
+  return preference.find((c) => names.includes(c));
 }
 
 // A user-defined machine in the shared registry.
@@ -222,23 +251,40 @@ export class MultiTraceController {
   // The baseline trace a manual offset is measured against: the first ordered
   // trace (the trace-time master). Its name labels the offset control.
   baselineName(uuid: string): string | undefined {
-    const baseline = this.orderedTraces()[0];
-    return baseline !== undefined && baseline.uuid !== uuid
-      ? baseline.file.name
-      : undefined;
+    return this.baselineFor(uuid)?.file.name;
   }
 
-  // The {file, clock} a manual offset syncs to: the baseline's path and its sole
-  // real clock (omitted when the baseline is clockless, so the importer
-  // resolves it). Undefined when |uuid| is itself the baseline.
+  // The trace a manual offset of |uuid| is measured against: the first ordered
+  // trace, or the second if |uuid| is itself the first. (An offset relates two
+  // traces, so the first one can carry it just as well; without this its
+  // control would do nothing.)
+  private baselineFor(uuid: string): TraceFile | undefined {
+    return this.orderedTraces().find((t) => t.uuid !== uuid);
+  }
+
+  // Whether the importer places |uuid| on the timeline as a whole, in which
+  // case it takes the `clock` and `start` modes and a smarter `auto`.
+  supportsWholeFileAlignment(uuid: string): boolean {
+    const trace = this._traces.find((t) => t.uuid === uuid);
+    return (
+      trace?.status === 'analyzed' && trace.analysis.wholeFileAlignment === true
+    );
+  }
+
+  // The {file, clock} a manual offset syncs to: the baseline's path and its
+  // reference clock (omitted when the baseline is clockless, so the importer
+  // resolves it). Undefined when there is no other trace.
   private baselineReference(
     uuid: string,
   ): {file: string; clock?: ClockName} | undefined {
-    const baseline = this.orderedTraces()[0];
-    if (baseline === undefined || baseline.uuid === uuid) {
+    const baseline = this.baselineFor(uuid);
+    if (baseline === undefined) {
       return undefined;
     }
-    return {file: baseline.file.name, clock: soleRealClock(baseline)};
+    return {
+      file: baseline.file.name,
+      clock: referenceClock(baseline, this._traceTime.clock),
+    };
   }
 
   // A message for the status line when the config has an entry the user must fix
@@ -258,14 +304,13 @@ export class MultiTraceController {
         return `Enter a whole number of nanoseconds for ${trace.file.name}'s offset.`;
       }
     }
-    const baseline = this.orderedTraces()[0];
-    if (baseline !== undefined) {
-      const baselineMachine = this.machineNameForTrace(baseline.uuid);
-      for (const trace of this._traces) {
+    for (const trace of this._traces) {
+      const baseline = this.baselineFor(trace.uuid);
+      if (baseline !== undefined) {
+        const baselineMachine = this.machineNameForTrace(baseline.uuid);
         const config = this.getConfig(trace.uuid);
         if (
           config.alignMode === 'manual' &&
-          trace.uuid !== baseline.uuid &&
           parseOffsetNs(config.offsetText) !== undefined &&
           // A clockless file pins a distinct private clock, so it may share a
           // machine; a real-clock file would relate its clock to itself.
@@ -470,6 +515,7 @@ export class MultiTraceController {
             : undefined,
         machineName: this.machineNameForTrace(t.uuid),
         machines: config.machines,
+        wholeFileAlignment: this.supportsWholeFileAlignment(t.uuid),
       };
     });
   }

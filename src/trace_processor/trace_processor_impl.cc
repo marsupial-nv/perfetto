@@ -189,6 +189,10 @@
 #include "src/trace_processor/importers/perf/perf_tracker.h"
 #endif
 
+#if PERFETTO_BUILDFLAG(PERFETTO_ENABLE_TRACY_IMPORTER)
+#include "src/trace_processor/plugins/tracy_importer/tracy_importer.h"
+#endif
+
 #if PERFETTO_BUILDFLAG(PERFETTO_ENABLE_WINSCOPE)
 #include "src/trace_processor/plugins/winscope_importer/winscope_importer.h"
 #include "src/trace_processor/plugins/winscope_proto_to_args_with_defaults/winscope_proto_to_args_with_defaults.h"
@@ -402,6 +406,9 @@ TraceProcessorImpl::TraceProcessorImpl(
   video_frame_importer::RegisterPlugin();
   wattson::RegisterPlugin();
   window_operator::RegisterPlugin();
+#if PERFETTO_BUILDFLAG(PERFETTO_ENABLE_TRACY_IMPORTER)
+  tracy_importer::RegisterPlugin();
+#endif
 #if PERFETTO_BUILDFLAG(PERFETTO_ENABLE_WINSCOPE)
   winscope_importer::RegisterPlugin();
   winscope_proto_to_args_with_defaults::RegisterPlugin();
