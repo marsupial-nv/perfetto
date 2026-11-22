@@ -17,6 +17,7 @@ import {fetchWithTimeout} from '../base/http_utils';
 import {reportError} from '../base/logging';
 import {assertIsArrayBufferView, ensureExists} from '../base/assert';
 import {EngineBase} from '../trace_processor/engine';
+import {type RpcTarget, rpcTargetFromPort} from './rpc_target';
 
 const RPC_CONNECT_TIMEOUT_MS = 2000;
 
@@ -39,6 +40,15 @@ export class HttpRpcEngine extends EngineBase {
   // Can be changed by frontend/index.ts when passing ?rpc_port=1234 .
   static rpcPort = '9001';
 
+  // Set by frontend/index.ts when passing ?rpc_url=http://host/prefix/ . When
+  // set it takes precedence over rpcPort: the trace processor is reached at
+  // this URL (e.g. through a reverse proxy) instead of 127.0.0.1:<port>.
+  static rpcTarget?: RpcTarget;
+
+  static get target(): RpcTarget {
+    return HttpRpcEngine.rpcTarget ?? rpcTargetFromPort(HttpRpcEngine.rpcPort);
+  }
+
   constructor(id: string) {
     super();
     this.id = id;
@@ -48,7 +58,7 @@ export class HttpRpcEngine extends EngineBase {
     assertIsArrayBufferView(data);
     if (this.websocket === undefined) {
       if (this.disposed) return;
-      const wsUrl = `ws://${HttpRpcEngine.hostAndPort}/websocket`;
+      const wsUrl = HttpRpcEngine.target.wsUrl;
       this.websocket = new WebSocket(wsUrl);
       this.websocket.onopen = () => this.onWebsocketConnected();
       this.websocket.onmessage = (e) => this.onWebsocketMessage(e);
@@ -111,7 +121,8 @@ export class HttpRpcEngine extends EngineBase {
   }
 
   static async checkConnection(): Promise<HttpRpcState> {
-    const RPC_URL = `http://${HttpRpcEngine.hostAndPort}/`;
+    const target = HttpRpcEngine.target;
+    const RPC_URL = target.httpBase;
     const httpRpcState: HttpRpcState = {connected: false};
     console.info(
       `It's safe to ignore the ERR_CONNECTION_REFUSED on ${RPC_URL} below. ` +
@@ -120,7 +131,7 @@ export class HttpRpcEngine extends EngineBase {
     );
     try {
       const resp = await fetchWithTimeout(
-        RPC_URL + 'status',
+        target.statusUrl,
         {method: 'post', cache: 'no-cache'},
         RPC_CONNECT_TIMEOUT_MS,
       );
@@ -140,7 +151,7 @@ export class HttpRpcEngine extends EngineBase {
   }
 
   static get hostAndPort() {
-    return `127.0.0.1:${HttpRpcEngine.rpcPort}`;
+    return HttpRpcEngine.target.label;
   }
 
   [Symbol.dispose]() {

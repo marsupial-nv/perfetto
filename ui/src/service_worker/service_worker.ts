@@ -93,6 +93,12 @@ function checkFirewall(req: Request): {allowed: boolean; reason?: string} {
     return {allowed: true};
   }
 
+  // Exempt: other ports of the host that serves the UI (needed for a
+  // trace_processor reached through ?rpc_url=, e.g. behind a proxy there).
+  if (url.hostname === self.location.hostname) {
+    return {allowed: true};
+  }
+
   // Allowlisted external domains: allow everything
   if (isAllowlistedDomain(url.hostname)) {
     return {allowed: true};

@@ -202,6 +202,12 @@ export async function checkHttpRpcConnection(): Promise<void> {
   }
 
   // Check if pre-loaded:
+  if (tpStatus.loadedTraceName && HttpRpcEngine.rpcTarget !== undefined) {
+    // The link named this trace processor explicitly (?rpc_url=): the intent
+    // is to look at the trace loaded there, so attach without asking.
+    AppImpl.instance.openTraceFromHttpRpc();
+    return;
+  }
   if (tpStatus.loadedTraceName) {
     // If a trace is already loaded in the trace processor (e.g., the user
     // launched trace_processor_shell -D trace_file.pftrace), prompt the user to

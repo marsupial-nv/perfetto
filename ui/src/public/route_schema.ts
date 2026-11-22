@@ -48,6 +48,17 @@ export const ROUTE_SCHEMA = z
     // the Content Security Policy.
     rpc_port: z.string().regex(/\d+/).optional().catch(undefined),
 
+    // For connecting to a trace_processor_shell --httpd instance reachable at
+    // an http(s) URL, e.g. behind a reverse proxy on another machine. The UI
+    // attaches to the trace loaded there without asking. rpc_token, if given,
+    // is sent as ?token= on the status and websocket requests.
+    rpc_url: z.string().optional().catch(undefined),
+    rpc_token: z.string().optional().catch(undefined),
+
+    // The colour theme for this page load only; the user's 'theme' setting is
+    // neither read nor changed. For pages that embed or open the UI.
+    theme: z.enum(['dark', 'light']).optional().catch(undefined),
+
     // Override the referrer. Useful for scripts such as
     // record_android_trace to record where the trace is coming from.
     referrer: z.string().optional().catch(undefined),

@@ -34,6 +34,8 @@ import {HomePage} from './home_page';
 import {postMessageHandler} from './post_message_handler';
 import {Router} from '../core/router';
 import {checkHttpRpcConnection} from './rpc_http_dialog';
+import {getThemeOverride, setThemeOverride} from '../base/theme_override';
+import {isRpcUrlTrusted, rpcTargetFromUrl} from '../trace_processor/rpc_target';
 import {maybeOpenTraceFromRoute} from './trace_url_handler';
 import {HttpRpcEngine} from '../trace_processor/http_rpc_engine';
 import {showModal} from '../widgets/modal';
@@ -146,6 +148,10 @@ function setupContentSecurityPolicy() {
         `ws://127.0.0.1:${route.args.rpc_port}`,
       ];
     }
+  }
+  const rpcUrlTarget = rpcTargetFromRoute();
+  if (rpcUrlTarget !== undefined) {
+    rpcPolicy = rpcPolicy.concat(rpcUrlTarget.cspSources);
   }
   const policy = {
     'default-src': [
@@ -393,12 +399,16 @@ function onCssLoaded(app: AppImpl) {
     defaultValue: 'light',
   } as const);
 
+  // ?theme=dark|light: the theme for this page load only.
+  setThemeOverride(app.initialRouteArgs.theme);
+
   // Add command to toggle the theme.
   app.commands.registerCommand({
     id: 'dev.perfetto.ToggleTheme',
     name: 'Toggle UI Theme (Dark/Light)',
     callback: () => {
-      const currentTheme = themeSetting.get();
+      const currentTheme = getThemeOverride() ?? themeSetting.get();
+      setThemeOverride(undefined);
       themeSetting.set(currentTheme === 'dark' ? 'light' : 'dark');
     },
   });
@@ -435,9 +445,12 @@ function onCssLoaded(app: AppImpl) {
       // the key. We also know that UIMain reloads the theme CSS variables on
       // mount, so include the theme in the key so that changing the theme also
       // forces a remount.
-      const uiMainKey = `${currentTraceId}-${themeSetting.get()}`;
+      // A theme given for this page load (?theme=, or by an embedder) wins
+      // over the setting without changing it.
+      const theme = getThemeOverride() ?? themeSetting.get();
+      const uiMainKey = `${currentTraceId}-${theme}`;
 
-      return m(ThemeProvider, {theme: themeSetting.get()}, [
+      return m(ThemeProvider, {theme}, [
         m(
           HotkeyContext,
           {
@@ -513,11 +526,56 @@ function onWindowLoaded() {
   warmupWasmWorker();
 }
 
+// If the URL is /#!?rpc_url=http://host/prefix/ returns where that trace
+// processor is, or undefined if the arg is absent, malformed or not allowed.
+// Attaching to a server on the machine that serves the UI is always allowed;
+// any other server needs the same flag as a non-standard port.
+function rpcTargetFromRoute() {
+  const route = Router.parseUrl(window.location.href);
+  const rpcUrl = route.args.rpc_url;
+  if (rpcUrl === undefined) return undefined;
+  if (
+    !isRpcUrlTrusted(rpcUrl, window.location.origin) &&
+    !CSP_WS_PERMISSIVE_PORT.get()
+  ) {
+    return undefined;
+  }
+  return rpcTargetFromUrl(rpcUrl, route.args.rpc_token);
+}
+
 // If the URL is /#!?rpc_port=1234, change the default RPC port.
 // For security reasons, this requires toggling a flag. Detect this and tell the
 // user what to do in this case.
 function maybeChangeRpcPortFromFragment() {
   const route = Router.parseUrl(window.location.href);
+  if (route.args.rpc_url !== undefined) {
+    const target = rpcTargetFromRoute();
+    if (target !== undefined) {
+      HttpRpcEngine.rpcTarget = target;
+    } else {
+      showModal({
+        title: 'Cannot attach to this trace processor',
+        content: m(
+          'div',
+          m(
+            'span',
+            'The rpc_url in the link is not a valid http(s) URL, or it names ' +
+              'a server other than the one serving this UI. For security ' +
+              'reasons the latter requires enabling the flag that relaxes ' +
+              'the Content Security Policy and restarting the UI.',
+          ),
+        ),
+        buttons: [
+          {
+            text: 'Take me to the flags page',
+            primary: true,
+            action: () => Router.navigate('#!/flags/cspAllowAnyWebsocketPort'),
+          },
+        ],
+      });
+    }
+    return;
+  }
   if (route.args.rpc_port !== undefined) {
     if (!CSP_WS_PERMISSIVE_PORT.get()) {
       showModal({
