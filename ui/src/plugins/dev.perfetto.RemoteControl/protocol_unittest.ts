@@ -105,6 +105,13 @@ describe('parseCommand', () => {
       }),
     ).toEqual('debug_track: bad key');
     expect(parseCommand({op: 'deselect'})).toEqual({op: 'deselect'});
+    expect(parseCommand({op: 'drawer', state: 'collapsed'})).toEqual({
+      op: 'drawer',
+      state: 'collapsed',
+    });
+    expect(parseCommand({op: 'drawer', state: 'half'})).toEqual(
+      'drawer: bad state',
+    );
     expect(parseCommand({op: 'theme', theme: 'dark'})).toEqual({
       op: 'theme',
       theme: 'dark',

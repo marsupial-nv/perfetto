@@ -59,6 +59,9 @@ export type RemoteCommand =
   // Use this colour theme for this page load, without changing the user's
   // own theme setting.
   | {op: 'theme'; theme: 'dark' | 'light'}
+  // Collapse or show the bottom drawer (details, Trace Doctor). An embedder
+  // with a short frame collapses it so that the tracks stay in view.
+  | {op: 'drawer'; state: 'collapsed' | 'visible'}
   // Drop the current selection, leaving tracks, pins and notes in place.
   | {op: 'deselect'}
   // Remove everything earlier commands added: pins, tracks, notes, selection.
@@ -214,6 +217,11 @@ export function parseCommand(raw: unknown): RemoteCommand | string {
         return 'theme: bad theme';
       }
       return {op: 'theme', theme: raw.theme};
+    case 'drawer':
+      if (raw.state !== 'collapsed' && raw.state !== 'visible') {
+        return 'drawer: bad state';
+      }
+      return {op: 'drawer', state: raw.state};
     case 'deselect':
       return {op: 'deselect'};
     case 'clear':

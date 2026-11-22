@@ -23,6 +23,7 @@ import {addDebugSliceTrack} from '../../components/tracks/debug_tracks';
 import type {App} from '../../public/app';
 import type {PerfettoPlugin} from '../../public/plugin';
 import type {Trace} from '../../public/trace';
+import {DrawerPanelVisibility} from '../../widgets/drawer_panel';
 import {
   isAllowedOrigin,
   parseRequest,
@@ -173,6 +174,13 @@ class RemoteView {
         );
         return undefined;
       }
+      case 'drawer':
+        trace.tabs.setTabPanelVisibility(
+          cmd.state === 'collapsed'
+            ? DrawerPanelVisibility.COLLAPSED
+            : DrawerPanelVisibility.VISIBLE,
+        );
+        return undefined;
       case 'deselect':
         trace.selection.clearSelection();
         return undefined;
